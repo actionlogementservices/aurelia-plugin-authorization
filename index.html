@@ -1,12 +1,18 @@
-<!DOCTYPE html>
+<!doctype html>
 <html>
   <head>
-    <meta charset="utf-8">
+    <meta charset="utf-8" />
+    <base href="/" />
     <title>Aurelia</title>
-    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <!-- Bootstrap css (provided by the application, the authorization-status element renders a bootstrap alert) -->
+    <link href="node_modules/bootstrap/dist/css/bootstrap.min.css" rel="stylesheet" />
   </head>
 
-  <body aurelia-app="main">
+  <body>
+    <div aurelia-app="main"></div>
+
+    <!-- Aurelia application -->
     <script src="scripts/vendor-bundle.js" data-main="aurelia-bootstrapper"></script>
   </body>
 </html>

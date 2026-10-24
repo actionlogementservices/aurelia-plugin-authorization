@@ -1,12 +1,49 @@
 <template>
-  <h1>Hello, this is the dev app for plugin test-au-1</h1>
-  <p>This dev app is bundled to scripts/ folder (ignored in .gitignore). If you commit the bundle files to github, this app can serve as a <a href="https://pages.github.com" target="_blank">github page</a>!</p>
+  <nav class="navbar navbar-expand bg-body-tertiary mb-4">
+    <div class="container">
+      <span class="navbar-brand">Dev app for aurelia-plugin-authorization</span>
+      <ul class="navbar-nav me-auto">
+        <li class="nav-item" repeat.for="route of router.navigation">
+          <a class="nav-link ${route.isActive ? 'active' : ''}" href.bind="route.href">${route.title}</a>
+        </li>
+      </ul>
+      <div class="d-flex gap-2">
+        <template if.bind="!connection.isUserLoggedIn">
+          <button
+            repeat.for="user of users"
+            type="button"
+            class="btn btn-sm btn-outline-primary"
+            click.trigger="connection.login(user)">
+            Login as ${user}
+          </button>
+        </template>
+        <button
+          if.bind="connection.isUserLoggedIn"
+          type="button"
+          class="btn btn-sm btn-outline-secondary"
+          click.trigger="connection.logout()">
+          Logout ${connection.userName}
+        </button>
+      </div>
+    </div>
+  </nav>
 
-  <p>Please read the <a href="README.md">README</a> file in your project for more information.</p>
+  <main class="container">
+    <authorization-status></authorization-status>
 
-  <hr>
-  <h2>Custom element "hello-world"</h2>
-  <p>Usage:&nbsp;<code>&lt;hello-world message.bind="message"&gt;&lt;/hello-world&gt;</code></p>
-  <hello-world message.bind="message"></hello-world>
+    <router-view></router-view>
 
+    <h2 class="h4 mt-4">Habilitations (status: ${authorizer.status})</h2>
+    <ul class="list-group mb-3">
+      <li class="list-group-item" repeat.for="group of authorizer.habilitationsBySubject">
+        <strong>${group.subject}</strong>
+        <span class="badge bg-secondary ms-1" repeat.for="action of group.actions">${action}</span>
+      </li>
+    </ul>
+
+    <h2 class="h4">able value converter</h2>
+    <button type="button" class="btn btn-primary" disabled.bind="!('gerer' | able: 'administration')">
+      Manage the administration
+    </button>
+  </main>
 </template>
