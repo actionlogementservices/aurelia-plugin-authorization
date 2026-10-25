@@ -57,6 +57,7 @@ const createRouter = (routeName, fragment, queryString = '') => ({
   navigation: [],
   addRoute: jest.fn(function (route) {
     this.routes.push(route);
+    this.navigation.push({ config: route });
   }),
   refreshNavigation: jest.fn(),
   navigate: jest.fn()
@@ -165,6 +166,17 @@ describe('Authorizer', () => {
     expect(router.refreshNavigation).toHaveBeenCalled();
     expect(router.navigate).toHaveBeenCalledWith('documents?tri=date', { replace: true });
     subscription.dispose();
+  });
+
+  test('keeps the navigation array of the router, which may be referenced by a menu', async () => {
+    const { authorizer, notifyUser } = createAuthorizer();
+    const router = createRouter('documents', 'documents');
+    router.navigation.push({ config: { name: 'stale' } });
+    const menuItems = router.navigation;
+    authorizer.synchroniseRouter(router, routes);
+    await notifyUser({ profile: {} });
+    expect(router.navigation).toBe(menuItems);
+    expect(menuItems.map(navModel => navModel.config.name)).toEqual(['accueil', 'documents', 'recherche']);
   });
 
   test('navigates to the default route when the current route is not authorized anymore', async () => {
