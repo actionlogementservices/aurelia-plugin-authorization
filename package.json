@@ -1,18 +1,17 @@
 {
-  "name": "@actionlogementservices/aurelia-plugin-base",
+  "name": "@actionlogementservices/aurelia-plugin-authorization",
   "version": "1.0.0",
-  "private": true,
-  "description": "An aurelia plugin repository that serves as a common base.",
+  "description": "An aurelia plugin that provides user authorization based on casl habilitations retrieved from an api.",
   "keywords": [
     "aurelia",
     "plugin",
-    "openid",
-    "oidc",
-    "oauth2"
+    "authorization",
+    "casl",
+    "habilitation"
   ],
   "repository": {
     "type": "git",
-    "url": "https://github.com/actionlogementservices/aurelia-plugin-base.git"
+    "url": "https://github.com/actionlogementservices/aurelia-plugin-authorization.git"
   },
   "license": "MIT",
   "author": "KisssDev",
@@ -24,20 +23,26 @@
   ],
   "scripts": {
     "build": "au build-plugin --env prod",
+    "bump": "release-it --no-git --no-github --npm.publish=false",
     "doc": "jsdoc -c ./.jsdoc.json",
+    "lint": "eslint src --fix && prettier --write src",
     "prepare": "npm run build && npx tsc -p ts-d-generation.json && cpx src/types.d.ts dist/types",
+    "pretest": "au lint",
+    "preversion": "au test",
+    "publish:local": "npx yalc publish --push",
     "release": "release-it",
     "start": "au run",
-    "pretest": "au lint",
     "test": "au test",
     "update:browserslist": "browserslist --update-db",
     "upgrade": "npx npm-upgrade",
-    "preversion": "au test",
     "watch": "au build-plugin --watch"
   },
   "browserslist": [
     ">= 0.2% in FR, last 5 versions, not dead, not Firefox 12"
   ],
+  "publishConfig": {
+    "access": "public"
+  },
   "jest": {
     "collectCoverage": true,
     "collectCoverageFrom": [
@@ -76,7 +81,12 @@
       "^.+\\.js$": "babel-jest"
     }
   },
+  "peerDependencies": {
+    "@actionlogementservices/aurelia-plugin-oidc": "^1.0.1",
+    "@casl/ability": "^6.7.1"
+  },
   "devDependencies": {
+    "@actionlogementservices/aurelia-plugin-oidc": "^1.0.1",
     "@babel/core": "^7.26.0",
     "@babel/eslint-parser": "^7.25.9",
     "@babel/plugin-proposal-decorators": "^7.25.9",
@@ -86,6 +96,7 @@
     "@babel/plugin-transform-optional-chaining": "^7.25.9",
     "@babel/preset-env": "^7.26.0",
     "@babel/register": "^7.25.9",
+    "@casl/ability": "^6.8.1",
     "@eslint/js": "^9.17.0",
     "@types/jest": "^29.5.14",
     "aurelia-animator-css": "^1.0.4",
@@ -95,10 +106,11 @@
     "aurelia-pal-nodejs": "^3.0.0-rc.2",
     "aurelia-testing": "^1.1.0",
     "babel-jest": "^29.7.0",
+    "bootstrap": "^5.3.8",
     "connect": "^3.7.0",
-    "cpx": "^1.5.0",
     "connect-history-api-fallback": "^2.0.0",
     "connect-injector": "^0.4.4",
+    "cpx": "^1.5.0",
     "debounce": "^2.2.0",
     "eslint": "^9.17.0",
     "eslint-config-prettier": "^9.1.0",
@@ -130,12 +142,13 @@
     "prettier": "^3.4.2",
     "promise-polyfill": "^8.3.0",
     "regenerator-runtime": "^0.14.1",
-    "release-it": "^19.0.2",
+    "release-it": "^21.1.1",
     "requirejs": "^2.3.7",
     "serve-static": "^1.16.2",
     "server-destroy": "^1.0.1",
     "socket.io": "^4.8.1",
-    "text": "requirejs/text"
+    "text": "requirejs/text",
+    "typescript": "~5.7.3"
   },
   "engines": {
     "node": ">=18.0.0"

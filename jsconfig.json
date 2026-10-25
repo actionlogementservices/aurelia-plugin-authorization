@@ -6,8 +6,10 @@
     "resolveJsonModule": true,
     "allowJs": true,
     "checkJs": true,
+    "strict": false,
     "baseUrl": "./src",
     "experimentalDecorators": true,
+    "ignoreDeprecations": "6.0",
     "forceConsistentCasingInFileNames": true
   },
   "include": ["src/**/*", "@types/*.d.ts"]

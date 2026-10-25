@@ -1,170 +1,390 @@
-# `@actionlogementservices/aurelia-plugin-base`
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![npm package](https://img.shields.io/npm/v/%40actionlogementservices%2Faurelia-plugin-authorization)](https://www.npmjs.com/package/@actionlogementservices/aurelia-plugin-authorization)
 
-This project is bootstrapped by [aurelia-cli](https://github.com/aurelia/cli).
+# `@actionlogementservices/aurelia-plugin-authorization`
 
-This Aurelia plugin project has a built-in dev app (with CLI built-in bundler and RequireJS) to simplify development.
+An Aurelia plugin that provides **user authorization** for **aurelia v1** applications, based on [casl](https://casl.js.org) habilitations retrieved from an api.
 
-1. The local `src/` folder, is the source code for the plugin.
-2. The local `dev-app/` folder, is the code for the dev app, just like a normal app bootstrapped by aurelia-cli.
-3. You can use normal `au run` and `au test` in development just like developing an app.
-4. You can use aurelia-testing to test your plugin, just like developing an app.
-5. To ensure compatibility to other apps, always use `PLATFORM.moduleName()` wrapper in files inside `src/`. You don't need to use the wrapper in `dev-app/` folder as CLI built-in bundler supports module name without the wrapper.
+## Description
 
-Note aurelia-cli doesn't provide a plugin skeleton with Webpack setup (not yet), but this plugin can be consumed by any app using Webpack, or CLI built-in bundler, or jspm.
+When the user connects (with [aurelia-plugin-oidc](https://github.com/actionlogementservices/aurelia-plugin-oidc)), the plugin:
 
-## How to write an Aurelia plugin
+- fetches the habilitations of the user (`{ action, subject }` items) from an api,
+- loads them in the casl `PureAbility` of the application,
+- reconfigures the routers with the routes authorized by the habilitations, and navigates again to the requested route,
+- blocks the navigation to the unauthorized routes with a router authorize step,
+- displays the status of the authorization process (loading, error, unauthorized).
 
-For a full length tutorial, visit [Aurelia plugin guide](https://aurelia-1.gitbook.io/v1-docs/developer-guides/building-plugins).
+It provides:
 
-Here is some basics. You can create new custom element, custom attribute, value converter or binding behavior manually, or use command `au generate` to help.
-```shell
-au generate element some-name
-au generate attribute some-name
-au generate value-converter some-name
-au generate binding-behavior some-name
-```
+| Export / resource                 | Description |
+| --------------------------------- | ----------- |
+| `Authorizer`                      | the authorization system (singleton): status, habilitations, `can()`, router synchronization, events |
+| `AuthorizeStep`                   | the router authorize step |
+| `HabilitationService`             | the habilitations retrieval service |
+| `Habilitation`                    | the habilitation model `{ action, subject }` |
+| `AuthorizationConfiguration`      | the plugin configuration |
+| `authorizationEvent`              | the names of the published events (`habilitationsChanged`, `userAuthorized`) |
+| `<authorization-status>` element  | displays the authorization process status in a bootstrap alert |
+| `able` value converter            | `'lire' \| able: 'document'` is true when the user can perform the action on the subject |
 
-By default, the cli generates command generates files in following folders:
-```
-src/elements
-src/attributes
-src/value-converters
-src/binding-behaviors
-```
+## Installation
 
-Note the folder structure is only to help you organising the files, it's not a requirement of Aurelia. You can manually create new element (or other thing) anywhere in `src/`.
+1. **Install** the plugin:
 
-After you added some new file, you need to register it in `src/index.js`. Like this:
-```js
-config.globalResources([
-  // ...
-  PLATFORM.moduleName('./path/to/new-file-without-ext')
-]);
-````
+   ```node
+   npm install @actionlogementservices/aurelia-plugin-authorization
+   ```
 
-The usage of `PLATFORM.moduleName` wrapper is mandatory. It's needed for your plugin to be consumed by any app using webpack, CLI built-in bundler, or jspm.
+   `@casl/ability` and `@actionlogementservices/aurelia-plugin-oidc` are peer dependencies, already installed by the applications.
 
-## Resource import within the dev app
+1. **Register** the plugin in aurelia with a callback returning the plugin options, after `aurelia-configuration` and `aurelia-plugin-oidc`:
 
-In dev app, when you need to import something from the inner plugin (for example, importing a class for dependency injection), use special name `"resources"` to reference the inner plugin.
+   ```javascript
+   // in your main.js
+   import { HttpClientConfigurator } from 'core/http-client-configurator';
 
-```js
-import {inject} from 'aurelia-framework';
-// "resources" refers the inner plugin src/index.js
-import {MyService} from 'resources';
+   export function configure(aurelia) {
+     aurelia.use
+       .standardConfiguration()
+       .plugin(PLATFORM.moduleName('aurelia-configuration'))
+       .plugin(PLATFORM.moduleName('@actionlogementservices/aurelia-plugin-oidc'), () => configureOpenid(aurelia))
+       .plugin(PLATFORM.moduleName('@actionlogementservices/aurelia-plugin-authorization'), () => ({
+         // the http client of the application, with its oauth2 and error interceptors
+         getHttpClient: () => aurelia.container.get(HttpClientConfigurator).initHttpClient('api.ged'),
+         habilitationsUrl: '/ged/3.0/utilisateurs/me/habilitations'
+       }));
+   ```
 
-@inject(MyService)
+   | Option                  | Description |
+   | ----------------------- | ----------- |
+   | `getHttpClient`         | **mandatory** function returning the http client (an aurelia-fetch-client `HttpClient`) used to fetch the habilitations. It is called once, when the habilitations are fetched for the first time. The plugin throws when it is not provided. |
+   | `habilitationsUrl`      | url of the api route returning the habilitations of the connected user, relative to the http client base url (default `/api/1.0/utilisateurs/me/habilitations`). |
+   | `timeout`               | timeout of the habilitations request in milliseconds (default `10000`). |
+   | `homeRoute`             | name of the route where the unauthorized navigations are redirected (default `accueil`). This route must not require habilitations. |
+   | `messages`              | messages displayed by `<authorization-status>` for the `ongoing`, `error`, `unauthorized` and `authorized` statuses (html allowed). Only the specified messages replace the default (french) ones. |
+   | `onHabilitationsLoaded` | async function called with the habilitations once they are loaded, to load additional user data before the user is authorized. When it fails, the status is `error`. See [Extensibility](#extensibility). |
+
+## Usage
+
+### Application router
+
+In `app.js`, add the authorize step and synchronize the application router with the authorizer:
+
+```javascript
+import { inject } from 'aurelia-framework';
+import { Router } from 'aurelia-router';
+import { Authorizer, AuthorizeStep } from '@actionlogementservices/aurelia-plugin-authorization';
+import { routes } from './routes';
+
+@inject(Router, Authorizer)
 export class App {
-  constructor(myService) {
-    this.myService = myService;
+  constructor(router, authorizer) {
+    this.router = router;
+    this.authorizer = authorizer;
+    // reconfigures the router with the authorized routes each time the habilitations change
+    this._subscription = authorizer.synchroniseRouter(router, routes);
+  }
+
+  detached() {
+    this._subscription.dispose();
+  }
+
+  configureRouter(configuration) {
+    configuration.addAuthorizeStep(AuthorizeStep);
+    configuration.map(routes);
+    configuration.fallbackRoute('accueil');
   }
 }
 ```
 
-## Manage dependencies
+The authorize step redirects to the `homeRoute` when the user is not connected or not authorized to navigate to the route.
+The navigation is not blocked while the habilitations are loading: the routers navigate again once they are loaded.
 
-By default, this plugin has no "dependencies" in package.json. Theoretically this plugin depends on at least `aurelia-pal` because `src/index.js` imports it. It could also depends on more core Aurelia package like `aurelia-binding` or `aurelia-templating` if you build advanced components that reference them.
+### Protected routes
 
-Ideally you need to carefully add those `aurelia-pal` (`aurelia-binding`...) to "dependencies" in package.json. But in practice you don't have to. Because every app that consumes this plugin will have full Aurelia core packages installed.
+A route requires habilitations with its `settings`:
 
-Furthermore, there are two benefits by leaving those dependencies out of plugin's package.json.
-1. ensure this plugin doesn't bring in a duplicated Aurelia core package to consumers' app. This is mainly for app built with webpack. We had been hit with `aurelia-binding` v1 and v2 conflicts due to 3rd party plugin asks for `aurelia-binding` v1.
-2. reduce the burden for npm/yarn when installing this plugin.
-
-If you are a perfectionist who could not stand leaving out dependencies, I recommend you to add `aurelia-pal` (`aurelia-binding`...) to "peerDependencies" in package.json. So at least it could not cause a duplicated Aurelia core package.
-
-If your plugin depends on other npm package, like `lodash` or `jquery`, **you have to add them to "dependencies" in package.json**.
-
-## Build Plugin
-
-Run `au build-plugin`. This will transpile all files from `src/` folder to `dist/native-modules/` and `dist/commonjs/`.
-
-For example, `src/index.js` will become `dist/native-modules/index.js` and `dist/commonjs/index.js`.
-
-Note all other files in `dev-app/` folder are for the dev app, they would not appear in the published npm package.
-
-## Consume Plugin
-
-By default, the `dist/` folder is not committed to git. (We have `/dist` in `.gitignore`). But that would not prevent you from consuming this plugin through direct git reference.
-
-You can consume this plugin directly by:
-```shell
-npm i github:actionlogementservices/aurelia-plugin-base
-# or if you use bitbucket
-npm i bitbucket:actionlogementservices/aurelia-plugin-base
-# or if you use gitlab
-npm i gitlab:actionlogementservices/aurelia-plugin-base
-# or plain url
-npm i https:/github.com/actionlogementservices/aurelia-plugin-base.git
+```javascript
+{
+  route: 'administration',
+  name: 'administration',
+  moduleId: PLATFORM.moduleName('views/administration/administration'),
+  nav: true,
+  title: 'Administration',
+  settings: {
+    requiredHabilitations: [
+      { action: 'affecter', subject: 'perimetre' },
+      { action: 'gerer', subject: 'administration' }
+    ],
+    // optional: '&&' (default) when all the habilitations are required, '||' when one is enough
+    operator: '||'
+  }
+}
 ```
 
-Then load the plugin in app's `main.js` like this.
-```js
-aurelia.use.plugin('@actionlogementservices/aurelia-plugin-base');
-// for webpack user, use PLATFORM.moduleName wrapper
-aurelia.use.plugin(PLATFORM.moduleName('@actionlogementservices/aurelia-plugin-base'));
+A route without `requiredHabilitations` is always authorized.
+
+### Child routers
+
+A child router maps its authorized routes and is synchronized after the application router:
+
+```javascript
+@inject(Authorizer, TaskQueue)
+export class Demandes {
+  constructor(authorizer, taskQueue) {
+    this._authorizer = authorizer;
+    this._taskQueue = taskQueue;
+  }
+
+  detached() {
+    this._subscription?.dispose();
+  }
+
+  configureRouter(configuration, router) {
+    this._taskQueue.queueTask(() => {
+      this._subscription = this._authorizer.synchroniseRouter(router, routes);
+    });
+    configuration.map(this._authorizer.getAuthorizedRoutes(routes));
+  }
+}
 ```
 
-The missing `dist/` files will be filled up by npm through `"prepare": "npm run build"` (in `"scripts"` section of package.json).
+### Authorization status
 
-Yarn has a [bug](https://github.com/yarnpkg/yarn/issues/5235) that ignores `"prepare"` script. If you want to use yarn to consume your plugin through direct git reference, remove `/dist` from `.gitignore` and commit all the files. Note you don't need to commit `dist/` files if you only use yarn to consume this plugin through published npm package (`npm i @actionlogementservices/aurelia-plugin-base`).
+In `app.html`, the `authorization-status` custom element displays the status of the authorization process in a bootstrap alert
+(nothing is displayed when the user is authorized):
 
-## Publish npm package
-
-By default, `"private"` field in package.json has been turned on, this prevents you from accidentally publish a private plugin to npm.
-
-To publish the plugin to npm for public consumption:
-
-1. Remove `"private": true,` from package.json.
-2. Pump up project version. This will run through `au test` (in "preversion" in package.json) first.
-```shell
-npm version patch # or minor or major
-```
-3. Push up changes to your git server
-```shell
-git push && git push --tags
-```
-4. Then publish to npm, you need to have your npm account logged in.
-```shell
-npm publish
+```html
+<authorization-status></authorization-status>
 ```
 
-## Automate changelog, git push, and npm publish
+### Habilitations in the views and view-models
 
-You can enable `npm version patch # or minor or major` to automatically update changelog, push commits and version tag to the git server, and publish to npm.
+Use the `able` value converter in the views. The bindings are refreshed when the habilitations change:
 
-Here is one simple setup.
-1. `npm i -D standard-changelog`. We use [`standard-changelog`](https://github.com/conventional-changelog/conventional-changelog) as a minimum example to support conventional changelog.
-  * Alternatively you can use high level [standard-version](https://github.com/conventional-changelog/standard-version).
-2. Add two commands to `"scripts"` section of package.json.
+```html
+<button if.bind="'deposer' | able: 'document'">Déposer</button>
 ```
-"scripts": {
-  // ...
-  "version": "standard-changelog && git add CHANGELOG.md",
-  "postversion": "git push && git push --tags && npm publish"
-},
+
+Use the `Authorizer` in the view-models:
+
+```javascript
+// is the action allowed now?
+this.canDeposer = authorizer.can('deposer', 'document');
+
+// once the user is authorized (the callback receives the casl ability)
+this._subscription = authorizer.onUserAuthorized(ability => (this.canDeposer = ability.can('deposer', 'document')));
+
+// each time the habilitations change (connection, disconnection, error)
+this._subscription = authorizer.onHabilitationsChanged(ability => this.refresh());
 ```
-3. you can remove `&& npm publish` if your project is private
 
-For more information, go to https://aurelia.io/docs/cli/cli-bundler
+The casl `PureAbility` can also be injected directly: it is the instance updated by the plugin.
 
-## Run dev app
+| `Authorizer` member              | Description |
+| -------------------------------- | ----------- |
+| `status`                         | `'ongoing'`, `'authorized'`, `'unauthorized'` or `'error'` (undefined before the first synchronization) |
+| `message`, `alertType`           | message and bootstrap alert type of the status |
+| `habilitations`                  | habilitations of the connected user (empty when disconnected or in error) |
+| `habilitationsBySubject`         | habilitations grouped by subject: `[{ subject, actions: string[] }]` |
+| `can(action, subject)`           | can the user perform the action on the subject? |
+| `isRouteAuthorized(route)`       | is the route authorized by the habilitations? |
+| `getAuthorizedRoutes(routes)`    | authorized routes (all the routes while the habilitations are loading) |
+| `synchroniseRouter(router, routes)` | reconfigures the router each time the habilitations change, returns the subscription |
+| `onUserAuthorized(callback)`     | subscribes to the `userAuthorized` event, returns the subscription |
+| `onHabilitationsChanged(callback)` | subscribes to the `habilitationsChanged` event, returns the subscription |
 
-Run `au run`, then open `http://localhost:9000`
+### User profile
 
-To open browser automatically, do `au run --open`.
+The user profile view displays the habilitations of the user with the `Authorizer`:
 
-To change dev server port, do `au run --port 8888`.
+```html
+<li class="list-group-item" repeat.for="group of authorizer.habilitationsBySubject">
+  <div class="fw-bold">Ressource <small>${group.subject}</small></div>
+  <span class="badge bg-secondary" repeat.for="action of group.actions">${action}</span>
+</li>
+```
 
-To change dev server host, do `au run --host 127.0.0.1`
+### Error interceptor
 
-To install new npm packages automatically, do `au run --auto-install`
+When the connected user has no habilitation, the habilitations api route answers with a `403` status.
+This is an expected answer, not an error: the plugin sets the `unauthorized` status and `<authorization-status>` displays the `unauthorized` message.
 
-**PS:** You could mix all the flags as well, `au run --host 127.0.0.1 --port 7070 --open`
+However, the request goes through the http client of the application, so its error interceptor sees this `403` response first.
+The error interceptor must therefore **not display its error popup** for the `403` response of the habilitations route:
 
+```javascript
+// core/error-interceptor.js
+export class ErrorInterceptor {
+  async responseError(error) {
+    // the user has no habilitation: the plugin displays the unauthorized message
+    const noHabilitation = error.status === 403 && error.url?.endsWith('/me/habilitations');
+    if (!noHabilitation) this.handleApiError(error); // displays the error popup
+    throw error;
+  }
+}
+```
 
-## Unit tests
+The interceptor may either rethrow the response (as above) or return it: the plugin treats both cases as "no habilitation".
 
-Run `au test` (or `au jest`).
+## Extensibility
 
-To run in watch mode, `au test --watch` or `au jest --watch`.
+### Additional user data
+
+Use the `onHabilitationsLoaded` option to enrich the user profile with custom data (perimeters, service...) once the habilitations are loaded.
+The user is authorized only after this function completes: when it fails, the status is `error`.
+
+The application keeps its own model (here `Profil`) and service (here `ProfilService`).
+The model is a singleton of the aurelia container, populated by the option:
+
+```javascript
+// main.js
+import { Profil } from 'models/profil';
+import { ProfilService } from 'services/profil-service';
+
+aurelia.use.plugin(PLATFORM.moduleName('@actionlogementservices/aurelia-plugin-authorization'), () => ({
+  getHttpClient: () => aurelia.container.get(HttpClientConfigurator).initHttpClient('api.ged'),
+  habilitationsUrl: '/ged/3.0/utilisateurs/me/habilitations',
+  // loads the perimeters of the user once the habilitations are loaded
+  onHabilitationsLoaded: async habilitations => {
+    const perimetres = await aurelia.container.get(ProfilService).getPerimetres();
+    aurelia.container.get(Profil).populate({ perimetres });
+  }
+}));
+```
+
+```javascript
+// models/profil.js
+export class Profil {
+  /** @type {{ nomPerimetre: string, codeClient: string }[]} */ perimetres = [];
+
+  populate({ perimetres }) {
+    this.perimetres = perimetres ?? [];
+  }
+}
+```
+
+The user profile view injects the same `Profil` instance to display the custom data next to the habilitations:
+
+```javascript
+// views/profil-utilisateur/profil-utilisateur.js
+import { inject } from 'aurelia-framework';
+import { Connection } from '@actionlogementservices/aurelia-plugin-oidc';
+import { Authorizer } from '@actionlogementservices/aurelia-plugin-authorization';
+import { Profil } from 'models/profil';
+
+@inject(Connection, Authorizer, Profil)
+export class ProfilUtilisateur {
+  constructor(connection, authorizer, profil) {
+    this.connection = connection;
+    this.authorizer = authorizer;
+    this.profil = profil;
+  }
+}
+```
+
+```html
+<!-- views/profil-utilisateur/profil-utilisateur.html -->
+<template>
+  <h3>Périmètres</h3>
+  <ul class="list-group">
+    <li class="list-group-item" repeat.for="perimetre of profil.perimetres">
+      <div class="fw-bold">${perimetre.nomPerimetre}</div>
+      <span class="badge bg-secondary">${perimetre.codeClient}</span>
+    </li>
+  </ul>
+
+  <h3>Habilitations</h3>
+  <ul class="list-group">
+    <li class="list-group-item" repeat.for="group of authorizer.habilitationsBySubject">
+      <div class="fw-bold">Ressource <small>${group.subject}</small></div>
+      <span class="badge bg-secondary" repeat.for="action of group.actions">${action}</span>
+    </li>
+  </ul>
+</template>
+```
+
+### Habilitations retrieval
+
+To retrieve the habilitations differently, register a subclass of `HabilitationService` before the application starts:
+
+```javascript
+import { HabilitationService } from '@actionlogementservices/aurelia-plugin-authorization';
+
+class MyHabilitationService extends HabilitationService {
+  async getHabilitations() {
+    // must return { action, subject }[]
+  }
+}
+
+aurelia.container.registerSingleton(HabilitationService, MyHabilitationService);
+```
+
+## Migration of an application
+
+The plugin is built from the `Als.Service.Ged.Web` implementation (the most recent one).
+
+1. Install the plugin and register it in `main.js` (see [Installation](#installation)). Remove the `@casl/aurelia` plugin if registered: the `able` value converter is provided.
+1. Delete the application files:
+   - `src/views/app/authorizer/authorizer.{js,html}`,
+   - `src/core/authorize-step.js`,
+   - `src/resources/value-converters/able.js` (and its registration in `resources/index.js`),
+   - `src/models/habilitation.js` and `src/models/permission.js`,
+   - `getHabilitations()` in `src/services/habilitation-service.js` (keep the service if it provides other calls).
+1. Import `Authorizer`, `AuthorizeStep` and `authorizationEvent` from the plugin instead of the deleted files.
+1. Replace `<compose view-model.bind="authorizer"></compose>` with `<authorization-status></authorization-status>` in `app.html`.
+1. Move the supplemental calls of the authorizer (`getProfil()` for GED, `getEquipesAls()` for Octroi, `getServiceByIdUtilisateur()` for EER) to the `onHabilitationsLoaded` option (see [Additional user data](#additional-user-data)).
+1. In the user profile view, use `authorizer.habilitationsBySubject` (`group.subject` and the `group.actions` strings) instead of the `Object.groupBy` getter.
+1. Applications with routes using `settings.requiredPermissions: [{ action, resource }]` and `settings.permissionOperator` (`Als.Del.Web`) must use
+   `settings.requiredHabilitations: [{ action, subject }]` and `settings.operator`. Note that the default operator is `'&&'`.
+1. Rename `authorizer.typeAlerte` to `authorizer.alertType` if used.
+
+Compared with the existing implementations, the plugin also:
+
+- clears `authorizer.habilitations` when the user disconnects or when the loading fails (they used to stay displayed in the profile),
+- does not add a trailing `?` to the url when navigating again to a route without query string,
+- handles a rejected 403 habilitations response (`unauthorized` instead of `error`).
+
+## Compatibility
+
+This plugin targets aurelia v1 **webpack** applications using `@casl/ability 6`, `aurelia-plugin-oidc 1` and bootstrap 5 for the alert styles.
+
+## Development
+
+The plugin is bootstrapped by [aurelia-cli](https://github.com/aurelia/cli):
+
+- the `src/` folder contains the source code of the plugin,
+- the `dev-app/` folder contains the code of the dev app used to test the plugin. It simulates the openid connection and the habilitations api (`dev-app/simulation.js`).
+
+| Command                 | Description |
+| ----------------------- | ----------- |
+| `npm start`             | runs the dev app on `http://localhost:9000` |
+| `npm test`              | lints and runs the unit tests |
+| `npm run lint`          | fixes the lint and formatting issues |
+| `npm run build`         | builds the plugin in `dist/` |
+| `npm run publish:local` | publishes the plugin locally with [yalc](https://github.com/wclr/yalc) to test it in an application |
+
+To test the plugin in a webpack application, add it with yalc then install it as a copy (not a symbolic link),
+otherwise aurelia-webpack-plugin cannot resolve the plugin resources (`Can't figure out a normalized module name`):
+
+```node
+npx yalc add @actionlogementservices/aurelia-plugin-authorization
+npm install --install-links
+```
+
+Always use the `PLATFORM.moduleName()` wrapper in the files of `src/` so that the plugin can be consumed by webpack applications.
+
+## Release
+
+The package is published on npm by the `Release` GitHub workflow, with npm trusted publishing (no npm token is stored in GitHub):
+
+1. In your pull request, bump the version with `npm run bump` (updates `package.json` and `package-lock.json` only).
+1. When the pull request is merged on `main`, the workflow runs the tests and **stages** the new version on npm.
+   Prerelease versions (e.g. `1.1.0-0`) are staged with the `next` dist-tag.
+1. The workflow creates a draft GitHub release and an issue assigned to the person who merged, as a reminder to:
+   - approve the staged version in the **Staged Packages** tab of the [npm package](https://www.npmjs.com/package/@actionlogementservices/aurelia-plugin-authorization) (2FA required),
+   - publish the draft GitHub release, which creates the git tag,
+   - close the issue.
+
+If the staged version is rejected, delete the draft release and close the issue.
