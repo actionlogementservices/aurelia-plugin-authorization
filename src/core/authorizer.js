@@ -157,8 +157,9 @@ export class Authorizer {
     logger.debug(
       `Reconfiguring the ${isApplicationRouter ? 'application' : 'child'} router with the routes: ${authorizedRoutes.map(r => r.name).join(', ')}`
     );
-    // the navigation array is emptied, not replaced, as it may be referenced (by a menu for instance)
-    router.navigation.length = 0;
+    // the navigation array is emptied, not replaced, as it may be referenced (by a menu for instance),
+    // with splice() so that the bindings observing it (repeat.for) are notified
+    router.navigation.splice(0);
     router.routes = [];
     for (const route of authorizedRoutes) router.addRoute(route);
     router.refreshNavigation();

@@ -1,5 +1,7 @@
 import { EventAggregator } from 'aurelia-event-aggregator';
 import { PureAbility } from '@casl/ability';
+import { StageComponent } from 'aurelia-testing';
+import { bootstrap } from 'aurelia-bootstrapper';
 import { Authorizer, authorizationEvent } from '../../../src/core/authorizer';
 import { AuthorizationConfiguration } from '../../../src/core/authorization-configuration';
 
@@ -55,9 +57,11 @@ const createRouter = (routeName, fragment, queryString = '') => ({
   currentInstruction: { config: { name: routeName }, fragment, queryString },
   routes: [],
   navigation: [],
+  // like the aurelia router, adds the navigation model then sorts the navigation
   addRoute: jest.fn(function (route) {
     this.routes.push(route);
-    this.navigation.push({ config: route });
+    this.navigation.push({ config: route, order: this.routes.length });
+    this.navigation.sort((a, b) => a.order - b.order);
   }),
   refreshNavigation: jest.fn(),
   navigate: jest.fn()
@@ -177,6 +181,23 @@ describe('Authorizer', () => {
     await notifyUser({ profile: {} });
     expect(router.navigation).toBe(menuItems);
     expect(menuItems.map(navModel => navModel.config.name)).toEqual(['accueil', 'documents', 'recherche']);
+  });
+
+  test('refreshes the menus bound to the navigation of the router, without duplicates', async () => {
+    const { authorizer, notifyUser } = createAuthorizer();
+    const router = createRouter('documents', 'documents');
+    for (const route of routes) router.addRoute(route);
+    const component = StageComponent.withResources([])
+      .inView('<div><span repeat.for="navModel of router.navigation">${navModel.config.name}</span></div>')
+      .boundTo({ router });
+    await component.create(bootstrap);
+    authorizer.synchroniseRouter(router, routes);
+    await notifyUser({ profile: {} });
+    // the repeat is refreshed asynchronously
+    await new Promise(resolve => setTimeout(resolve, 10));
+    const rendered = [...component.element.querySelectorAll('span')].map(span => span.textContent);
+    expect(rendered).toEqual(['accueil', 'documents', 'recherche']);
+    component.dispose();
   });
 
   test('navigates to the default route when the current route is not authorized anymore', async () => {
