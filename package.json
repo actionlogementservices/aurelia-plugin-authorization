@@ -1,6 +1,6 @@
 {
   "name": "@actionlogementservices/aurelia-plugin-authorization",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "description": "An aurelia plugin that provides user authorization based on casl habilitations retrieved from an api.",
   "keywords": [
     "aurelia",
