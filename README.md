@@ -379,7 +379,7 @@ Always use the `PLATFORM.moduleName()` wrapper in the files of `src/` so that th
 
 The package is published on npm by the `Release` GitHub workflow, with npm trusted publishing (no npm token is stored in GitHub):
 
-1. In your pull request, bump the version with `npm run bump` (updates `package.json` and `package-lock.json` only).
+1. In your pull request, bump the version with `npm run bump -- <major|minor|patch|prerelease>` (updates `package.json` and `package-lock.json` only).
 1. When the pull request is merged on `main`, the workflow runs the tests and **stages** the new version on npm.
    Prerelease versions (e.g. `1.1.0-0`) are staged with the `next` dist-tag.
 1. The workflow creates a draft GitHub release and an issue assigned to the person who merged, as a reminder to:
