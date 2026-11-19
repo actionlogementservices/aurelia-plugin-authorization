@@ -101,6 +101,24 @@ export class App {
 The authorize step redirects to the `homeRoute` when the user is not connected or not authorized to navigate to the route.
 The navigation is not blocked while the habilitations are loading: the routers navigate again once they are loaded.
 
+With `aurelia-plugin-oidc` 2, add its `AuthenticateStep` **before** the authorize step so that a user opening a protected url
+(a bookmark, a link in an email...) without being connected is sent to the OpenID provider and comes back to the requested url,
+instead of being redirected to the `homeRoute`. With an existing SSO session, the round trip is transparent:
+
+```javascript
+import { AuthenticateStep } from '@actionlogementservices/aurelia-plugin-oidc';
+...
+  configureRouter(configuration) {
+    configuration.addAuthorizeStep(AuthenticateStep);
+    configuration.addAuthorizeStep(AuthorizeStep);
+    configuration.map(routes);
+    configuration.fallbackRoute('accueil');
+  }
+```
+
+The routes requiring authentication are defined with `settings.authRequired`, or with the `authRequiredByDefault` option of `aurelia-plugin-oidc`
+(the `homeRoute` must then define `settings: { authRequired: false }`).
+
 ### Protected routes
 
 A route requires habilitations with its `settings`:
@@ -348,7 +366,7 @@ Compared with the existing implementations, the plugin also:
 
 ## Compatibility
 
-This plugin targets aurelia v1 **webpack** applications using `@casl/ability 6`, `aurelia-plugin-oidc 1` and bootstrap 5 for the alert styles.
+This plugin targets aurelia v1 **webpack** applications using `@casl/ability 6`, `aurelia-plugin-oidc 1 or 2` and bootstrap 5 for the alert styles.
 
 ## Development
 
