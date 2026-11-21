@@ -57,10 +57,14 @@ const createRouter = (routeName, fragment, queryString = '') => ({
   currentInstruction: { config: { name: routeName }, fragment, queryString },
   routes: [],
   navigation: [],
-  // like the aurelia router, adds the navigation model then sorts the navigation
-  addRoute: jest.fn(function (route) {
+  createNavModel: jest.fn(function (route) {
+    return { config: route, order: this.routes.length + 1 };
+  }),
+  // like the aurelia router, adds the navigation model once (shared by the paths of a route) then sorts the navigation
+  addRoute: jest.fn(function (route, navModel = this.createNavModel(route)) {
     this.routes.push(route);
-    this.navigation.push({ config: route, order: this.routes.length });
+    route.navModel = navModel;
+    if (!this.navigation.includes(navModel)) this.navigation.push(navModel);
     this.navigation.sort((a, b) => a.order - b.order);
   }),
   refreshNavigation: jest.fn(),
@@ -198,6 +202,21 @@ describe('Authorizer', () => {
     const rendered = [...component.element.querySelectorAll('span')].map(span => span.textContent);
     expect(rendered).toEqual(['accueil', 'documents', 'recherche']);
     component.dispose();
+  });
+
+  test('adds the routes with several paths path by path, sharing the navigation model', async () => {
+    const { authorizer, notifyUser } = createAuthorizer();
+    const router = createRouter('accueil', 'accueil');
+    const routesWithSeveralPaths = [{ name: 'accueil', route: ['', 'accueil'] }, ...routes.slice(1)];
+    authorizer.synchroniseRouter(router, routesWithSeveralPaths);
+    await notifyUser({ profile: {} });
+    const homeRoutes = router.routes.filter(route => route.name === 'accueil');
+    expect(homeRoutes.map(route => route.route)).toEqual(['', 'accueil']);
+    expect(homeRoutes[0].navModel).toBe(homeRoutes[1].navModel);
+    expect(typeof homeRoutes[1].navModel).toBe('object');
+    expect(router.navigation.map(navModel => navModel.config.name)).toEqual(['accueil', 'documents', 'recherche']);
+    // the route definitions of the application are not modified
+    expect(routesWithSeveralPaths[0].route).toEqual(['', 'accueil']);
   });
 
   test('navigates to the default route when the current route is not authorized anymore', async () => {

@@ -169,9 +169,27 @@ export class Authorizer {
     // with splice() so that the bindings observing it (repeat.for) are notified
     router.navigation.splice(0);
     router.routes = [];
-    for (const route of authorizedRoutes) router.addRoute(route);
+    for (const route of authorizedRoutes) this._addRoute(router, route);
     router.refreshNavigation();
     this._deferNavigation(router, isApplicationRouter);
+  }
+
+  /**
+   * Adds the specified route to the router, like the `map()` method of the router configuration.
+   * A route with several paths (`route: ['', 'home']`) is added path by path, all the paths sharing the same
+   * navigation model: `router.addRoute()` would give the array index as navigation model to the other paths
+   * (aurelia-router bug), making the navigation to these paths fail.
+   * @param {Router} router router to configure
+   * @param {RouteConfig} route route definition
+   */
+  _addRoute(router, route) {
+    const paths = Array.isArray(route.route) ? route.route : [route.route];
+    let navModel;
+    for (const path of paths) {
+      const routeConfig = { ...route, route: path, settings: route.settings ?? {} };
+      navModel ??= router.createNavModel(routeConfig);
+      router.addRoute(routeConfig, navModel);
+    }
   }
 
   /**
