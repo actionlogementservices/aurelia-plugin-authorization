@@ -57,10 +57,14 @@ const createRouter = (routeName, fragment, queryString = '') => ({
   currentInstruction: { config: { name: routeName }, fragment, queryString },
   routes: [],
   navigation: [],
-  // like the aurelia router, adds the navigation model then sorts the navigation
-  addRoute: jest.fn(function (route) {
+  createNavModel: jest.fn(function (route) {
+    return { config: route, order: this.routes.length + 1 };
+  }),
+  // like the aurelia router, adds the navigation model once (shared by the paths of a route) then sorts the navigation
+  addRoute: jest.fn(function (route, navModel = this.createNavModel(route)) {
     this.routes.push(route);
-    this.navigation.push({ config: route, order: this.routes.length });
+    route.navModel = navModel;
+    if (!this.navigation.includes(navModel)) this.navigation.push(navModel);
     this.navigation.sort((a, b) => a.order - b.order);
   }),
   refreshNavigation: jest.fn(),
@@ -200,6 +204,21 @@ describe('Authorizer', () => {
     component.dispose();
   });
 
+  test('adds the routes with several paths path by path, sharing the navigation model', async () => {
+    const { authorizer, notifyUser } = createAuthorizer();
+    const router = createRouter('accueil', 'accueil');
+    const routesWithSeveralPaths = [{ name: 'accueil', route: ['', 'accueil'] }, ...routes.slice(1)];
+    authorizer.synchroniseRouter(router, routesWithSeveralPaths);
+    await notifyUser({ profile: {} });
+    const homeRoutes = router.routes.filter(route => route.name === 'accueil');
+    expect(homeRoutes.map(route => route.route)).toEqual(['', 'accueil']);
+    expect(homeRoutes[0].navModel).toBe(homeRoutes[1].navModel);
+    expect(typeof homeRoutes[1].navModel).toBe('object');
+    expect(router.navigation.map(navModel => navModel.config.name)).toEqual(['accueil', 'documents', 'recherche']);
+    // the route definitions of the application are not modified
+    expect(routesWithSeveralPaths[0].route).toEqual(['', 'accueil']);
+  });
+
   test('navigates to the default route when the current route is not authorized anymore', async () => {
     const { authorizer, notifyUser } = createAuthorizer();
     const router = createRouter('administration', 'administration');
@@ -208,12 +227,26 @@ describe('Authorizer', () => {
     expect(router.navigate).toHaveBeenCalledWith('', { replace: true });
   });
 
-  test('does not reconfigure the router when it is not ready or the user is disconnected', async () => {
-    const { authorizer, connection, notifyUser } = createAuthorizer();
+  test('defers the reconfiguration of a router that is not ready until its navigation is complete', async () => {
+    const { authorizer, eventAggregator, notifyUser } = createAuthorizer();
     const router = { ...createRouter('documents', 'documents'), currentInstruction: undefined };
     authorizer.synchroniseRouter(router, routes);
     await notifyUser({ profile: {} });
+    // habilitations changed twice before the end of the navigation: the router is reconfigured once
+    await notifyUser({ profile: {} });
     expect(router.addRoute).not.toHaveBeenCalled();
+    router.currentInstruction = { config: { name: 'documents' }, fragment: 'documents', queryString: '' };
+    eventAggregator.publish('router:navigation:complete', {});
+    expect(router.routes.map(route => route.name)).toEqual(['accueil', 'documents', 'recherche']);
+    expect(router.navigate).toHaveBeenCalledWith('documents', { replace: true });
+    expect(router.addRoute).toHaveBeenCalledTimes(3);
+    // later navigations do not reconfigure the router again
+    eventAggregator.publish('router:navigation:complete', {});
+    expect(router.addRoute).toHaveBeenCalledTimes(3);
+  });
+
+  test('does not reconfigure the router when the user is disconnected', async () => {
+    const { authorizer, connection, notifyUser } = createAuthorizer();
     const readyRouter = createRouter('documents', 'documents');
     authorizer.synchroniseRouter(readyRouter, routes);
     connection.isUserLoggedIn = false;

@@ -39,6 +39,8 @@ export class Authorizer {
   /** Message of the authorization process status. @type {string} */ message;
   /** Bootstrap alert type of the authorization process status. @type {string} */ alertType;
   /** Habilitations of the connected user. @type {Habilitation[]} */ habilitations = [];
+  /** Routers waiting for their first navigation to be reconfigured. @type {WeakSet<Router>} */ _pendingRouters =
+    new WeakSet();
 
   /**
    * Creates an instance of the authorization system.
@@ -151,7 +153,13 @@ export class Authorizer {
    * @param {RouteConfig[]} routes route definitions of the router
    */
   _reconfigureRouter(router, routes) {
-    if (!router.currentInstruction || !this._connection.isUserLoggedIn) return;
+    if (!this._connection.isUserLoggedIn) return;
+    if (!router.currentInstruction) {
+      // the first navigation of the router is in progress (the habilitations were loaded before it ended):
+      // the router is reconfigured once it is complete, otherwise it would keep all its routes
+      this._deferReconfiguration(router, routes);
+      return;
+    }
     const isApplicationRouter = !router.parent;
     const authorizedRoutes = this.getAuthorizedRoutes(routes);
     logger.debug(
@@ -161,9 +169,43 @@ export class Authorizer {
     // with splice() so that the bindings observing it (repeat.for) are notified
     router.navigation.splice(0);
     router.routes = [];
-    for (const route of authorizedRoutes) router.addRoute(route);
+    for (const route of authorizedRoutes) this._addRoute(router, route);
     router.refreshNavigation();
     this._deferNavigation(router, isApplicationRouter);
+  }
+
+  /**
+   * Adds the specified route to the router, like the `map()` method of the router configuration.
+   * A route with several paths (`route: ['', 'home']`) is added path by path, all the paths sharing the same
+   * navigation model: `router.addRoute()` would give the array index as navigation model to the other paths
+   * (aurelia-router bug), making the navigation to these paths fail.
+   * @param {Router} router router to configure
+   * @param {RouteConfig} route route definition
+   */
+  _addRoute(router, route) {
+    const paths = Array.isArray(route.route) ? route.route : [route.route];
+    let navModel;
+    for (const path of paths) {
+      const routeConfig = { ...route, route: path, settings: route.settings ?? {} };
+      navModel ??= router.createNavModel(routeConfig);
+      router.addRoute(routeConfig, navModel);
+    }
+  }
+
+  /**
+   * Reconfigures the specified router once its current navigation is complete.
+   * @param {Router} router router to reconfigure
+   * @param {RouteConfig[]} routes route definitions of the router
+   */
+  _deferReconfiguration(router, routes) {
+    if (this._pendingRouters.has(router)) return;
+    this._pendingRouters.add(router);
+    logger.debug('Router not ready: its reconfiguration is deferred until its navigation is complete');
+    // published by the application router after each navigation, whatever its result
+    this._eventAggregator.subscribeOnce('router:navigation:complete', () => {
+      this._pendingRouters.delete(router);
+      this._reconfigureRouter(router, routes);
+    });
   }
 
   /**
