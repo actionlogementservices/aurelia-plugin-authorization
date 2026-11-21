@@ -208,12 +208,26 @@ describe('Authorizer', () => {
     expect(router.navigate).toHaveBeenCalledWith('', { replace: true });
   });
 
-  test('does not reconfigure the router when it is not ready or the user is disconnected', async () => {
-    const { authorizer, connection, notifyUser } = createAuthorizer();
+  test('defers the reconfiguration of a router that is not ready until its navigation is complete', async () => {
+    const { authorizer, eventAggregator, notifyUser } = createAuthorizer();
     const router = { ...createRouter('documents', 'documents'), currentInstruction: undefined };
     authorizer.synchroniseRouter(router, routes);
     await notifyUser({ profile: {} });
+    // habilitations changed twice before the end of the navigation: the router is reconfigured once
+    await notifyUser({ profile: {} });
     expect(router.addRoute).not.toHaveBeenCalled();
+    router.currentInstruction = { config: { name: 'documents' }, fragment: 'documents', queryString: '' };
+    eventAggregator.publish('router:navigation:complete', {});
+    expect(router.routes.map(route => route.name)).toEqual(['accueil', 'documents', 'recherche']);
+    expect(router.navigate).toHaveBeenCalledWith('documents', { replace: true });
+    expect(router.addRoute).toHaveBeenCalledTimes(3);
+    // later navigations do not reconfigure the router again
+    eventAggregator.publish('router:navigation:complete', {});
+    expect(router.addRoute).toHaveBeenCalledTimes(3);
+  });
+
+  test('does not reconfigure the router when the user is disconnected', async () => {
+    const { authorizer, connection, notifyUser } = createAuthorizer();
     const readyRouter = createRouter('documents', 'documents');
     authorizer.synchroniseRouter(readyRouter, routes);
     connection.isUserLoggedIn = false;
