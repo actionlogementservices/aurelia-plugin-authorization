@@ -8,8 +8,32 @@ import { Authorizer } from './authorizer';
 /** @typedef {import('aurelia-router').Next} Next */
 
 /**
+ * Determines whether the navigation is public, i.e. reachable by a user who is not connected:
+ * the navigated route (or the deepest child route defining it) explicitly sets `settings.authRequired: false`,
+ * as with the `AuthenticateStep` of aurelia-plugin-oidc, and no route of the navigation requires habilitations.
+ * @example
+ * // a public faq route in an application requiring authentication by default
+ * { route: 'faq', name: 'faq', moduleId: PLATFORM.moduleName('views/faq'), settings: { authRequired: false } }
+ * @param {NavigationInstruction} navigationInstruction navigation instruction to analyze
+ * @param {boolean} [parentIsPublic] value inherited from the parent route
+ * @returns {boolean} true when a user who is not connected can navigate
+ * @category internal
+ */
+export function isPublicNavigation(navigationInstruction, parentIsPublic = false) {
+  const { authRequired, requiredHabilitations = [] } = navigationInstruction.config?.settings ?? {};
+  if (requiredHabilitations.length > 0) return false;
+  const isPublic = typeof authRequired === 'boolean' ? !authRequired : parentIsPublic;
+  const childInstructions = Object.values(navigationInstruction.viewPortInstructions ?? {})
+    .map(viewPortInstruction => viewPortInstruction.childNavigationInstruction)
+    .filter(Boolean);
+  if (childInstructions.length === 0) return isPublic;
+  return childInstructions.every(childInstruction => isPublicNavigation(childInstruction, isPublic));
+}
+
+/**
  * Implements the **router authorize step** that redirects to the home route
  * when the user is not connected or not authorized to navigate to the route.
+ * A user who is not connected can navigate to the public routes (see `isPublicNavigation`).
  * @example
  * configuration.addAuthorizeStep(AuthorizeStep);
  * @category public
@@ -39,8 +63,9 @@ export class AuthorizeStep {
     if (this._authorizer.status === 'ongoing') return next();
     const { homeRoute } = this._configuration;
     if (navigationInstruction.config.name === homeRoute) return next();
-    const canNavigate =
-      this._connection.isUserLoggedIn && this._authorizer.isRouteAuthorized(navigationInstruction.config);
+    const canNavigate = this._connection.isUserLoggedIn
+      ? this._authorizer.isRouteAuthorized(navigationInstruction.config)
+      : isPublicNavigation(navigationInstruction);
     return canNavigate ? next() : next.cancel(new RedirectToRoute(homeRoute));
   }
 }

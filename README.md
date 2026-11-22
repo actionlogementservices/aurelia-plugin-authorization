@@ -99,6 +99,8 @@ export class App {
 ```
 
 The authorize step redirects to the `homeRoute` when the user is not connected or not authorized to navigate to the route.
+A user who is not connected can still navigate to the **public routes**: the routes defining `settings: { authRequired: false }`
+(the deepest child route defining it wins) without `requiredHabilitations`, such as a faq or the legal notices.
 The navigation is not blocked while the habilitations are loading: the routers navigate again once they are loaded.
 
 With `aurelia-plugin-oidc` 2, add its `AuthenticateStep` **before** the authorize step so that a user opening a protected url
