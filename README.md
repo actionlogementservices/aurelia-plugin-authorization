@@ -147,7 +147,9 @@ A route without `requiredHabilitations` is always authorized.
 
 ### Child routers
 
-A child router maps its authorized routes and is synchronized after the application router:
+A child router maps its authorized routes and is synchronized after the application router.
+When the user is not connected, it maps all its routes so that a deep link (`/demandes/detail`) reaches the authorize steps,
+which start the login or redirect to the home route, instead of failing with *Route not found*:
 
 ```javascript
 @inject(Authorizer, TaskQueue)
@@ -210,7 +212,7 @@ The casl `PureAbility` can also be injected directly: it is the instance updated
 | `habilitationsBySubject`         | habilitations grouped by subject: `[{ subject, actions: string[] }]` |
 | `can(action, subject)`           | can the user perform the action on the subject? |
 | `isRouteAuthorized(route)`       | is the route authorized by the habilitations? |
-| `getAuthorizedRoutes(routes)`    | authorized routes (all the routes while the habilitations are loading) |
+| `getAuthorizedRoutes(routes)`    | authorized routes (all the routes while the habilitations are loading or when the user is not connected) |
 | `synchroniseRouter(router, routes)` | reconfigures the router each time the habilitations change, returns the subscription |
 | `onUserAuthorized(callback)`     | subscribes to the `userAuthorized` event, returns the subscription |
 | `onHabilitationsChanged(callback)` | subscribes to the `habilitationsChanged` event, returns the subscription |

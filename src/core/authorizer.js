@@ -135,12 +135,14 @@ export class Authorizer {
 
   /**
    * Filters the authorized routes, typically mapped by a child router.
-   * All the routes are returned while the habilitations are loading.
+   * All the routes are returned while the habilitations are loading, and when the user is not connected:
+   * a child router must know the requested route (deep link), so that the authorize steps can start
+   * the login or redirect to the home route instead of the navigation failing with "Route not found".
    * @param {RouteConfig[]} routes route definitions
    * @returns {RouteConfig[]} authorized routes
    */
   getAuthorizedRoutes(routes) {
-    if (this.status === 'ongoing') return routes;
+    if (this.status === 'ongoing' || !this._connection.isUserLoggedIn) return routes;
     const authorizedRoutes = routes.filter(route => this.isRouteAuthorized(route));
     // the router reuses the navigation model of a route, which may belong to a previous router
     for (const route of authorizedRoutes) delete route.navModel;
