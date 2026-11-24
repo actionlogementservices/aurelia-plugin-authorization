@@ -165,6 +165,12 @@ describe('Authorizer', () => {
     expect(authorizer.getAuthorizedRoutes(routes)).toBe(routes);
   });
 
+  test('returns all the routes when the user is not connected', () => {
+    const { authorizer, connection } = createAuthorizer();
+    connection.isUserLoggedIn = false;
+    expect(authorizer.getAuthorizedRoutes(routes)).toBe(routes);
+  });
+
   test('reconfigures the router and navigates again to the authorized current route', async () => {
     const { authorizer, notifyUser } = createAuthorizer();
     const router = createRouter('documents', 'documents', 'tri=date');
