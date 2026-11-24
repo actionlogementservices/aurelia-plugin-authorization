@@ -168,9 +168,16 @@ export class Demandes {
       this._subscription = this._authorizer.synchroniseRouter(router, routes);
     });
     configuration.map(this._authorizer.getAuthorizedRoutes(routes));
+    // a route that is unknown or not authorized (deep link without the habilitation) redirects to the default route
+    configuration.mapUnknownRoutes(() => ({ redirect: '' }));
   }
 }
 ```
+
+Without `mapUnknownRoutes`, a deep link to a child route the user is not authorized to (`/demandes/detail`)
+fails with *Route not found*: the child router is configured with the authorized routes only, and Aurelia resolves
+the child route before the authorize steps run. The same happens after the habilitations are loaded,
+when the child router loses its current route.
 
 ### Authorization status
 
